@@ -13,6 +13,9 @@ Based on Eric Mann's and Erick Hitter's Redis Object Cache:
 https://github.com/ericmann/Redis-Object-Cache
 */
 
+// The dropin functionalities can be disabled with this constant.
+if ( ! defined( 'WP_REDIS_DISABLED' ) || ! WP_REDIS_DISABLED ) :
+
 /**
  * Adds a value to cache.
  *
@@ -336,6 +339,13 @@ class WP_Object_Cache {
     public $cache_misses = 0;
 
     /**
+     * This array holds all actions to be perfomed in the PHP's shutdown hook.
+     *
+     * @var array
+     */
+    protected $actions = [];
+
+    /**
      * Instantiate the Redis class.
      *
      * Instantiates the Redis class.
@@ -456,6 +466,9 @@ class WP_Object_Cache {
 
             $this->redis_connected = true;
 
+            // Register the shutdown hook to perform Redis actions.
+            register_shutdown_function( [ $this, 'excecute_actions' ] );
+
         } catch ( Exception $exception ) {
 
             // When Redis is unavailable, fall back to the internal back by forcing all groups to be "no redis" groups
@@ -497,6 +510,66 @@ class WP_Object_Cache {
      */
     public function redis_instance() {
         return $this->redis;
+    }
+
+    /**
+     * Add an action to be run on the PHP's shutdown hook.
+     *
+     * If the same key is used multiple times, the previous action is removed.
+     * This results in only one action to be excecuted for a specific key.
+     *
+     * @param string       $key         The key under which to store the value.
+     * @param string       $command     The Redis command to be excecuted.
+     * @param mixed        $value       The value to store.
+     * @param integer|null $expiration  The expiration time, defaults to 0.
+     * @return void
+     */
+    protected function add_action( string $key, string $command, $value = null, ?int $expiration = null ) {
+        $action_key = $key . $command;
+
+        $this->actions[ $action_key ] = [
+            'key'        => $key,
+            'command'    => $command,
+            'value'      => $value,
+            'expiration' => $expiration,
+        ];
+
+        $actions = [ 'del', 'set', 'setex' ];
+
+        $remove_actions = array_diff( [ $command ], $actions );
+
+        // Remve other actions.
+        foreach( $remove_actions as $action ) {
+            unset( $this->actions[ $key . $action ] );
+        }
+    }
+
+    /**
+     * Excecute all stored Redis commands.
+     */
+    public function excecute_actions() {
+        if ( empty( $this->actions ) ) {
+            return;
+        }
+
+        foreach( $this->actions as $action ) {
+            try {
+                switch ( $action['command'] ) {
+                    case 'del':
+                        $this->redis->del( $action['key'] );
+                        break;
+                    case 'set':
+                        $this->redis->set( $action['key'], $action['value'] );
+                        break;
+                    case 'setex':
+                        $this->redis->set( $action['key'], $action['value'] );
+                        break;
+                }
+            }
+            catch ( Exception $error ) {
+                error_log( 'Redis Object Cache Drop-In: ' . $error->getMessage() );
+            }
+        }
     }
 
     /**
@@ -559,9 +632,11 @@ class WP_Object_Cache {
             $expiration = $this->validate_expiration( $expiration );
 
             if ( $expiration ) {
-                $result = $this->parse_redis_response( $this->redis->setex( $derived_key, $expiration, $this->maybe_serialize( $value ) ) );
+                $this->add_action( $derived_key, 'setex', $this->maybe_serialize( $value ), $expiration );
+                $result = true;
             } else {
-                $result = $this->parse_redis_response( $this->redis->set( $derived_key, $this->maybe_serialize( $value ) ) );
+                $this->add_action( $derived_key, 'set', $this->maybe_serialize( $value ) );
+                $result = true;
             }
         }
 
@@ -594,7 +669,8 @@ class WP_Object_Cache {
         }
 
         if ( $this->redis_status() && ! in_array( $group, $this->ignored_groups, true ) ) {
-            $result = $this->parse_redis_response( $this->redis->del( $derived_key ) );
+            $this->add_action( $derived_key, 'del' );
+            $result = true;
         }
 
         do_action('redis_object_cache_delete', $key, $group);
@@ -639,12 +715,20 @@ class WP_Object_Cache {
     public function get( $key, $group = 'default', $force = false, &$found = null ) {
         $derived_key = $this->build_key( $key, $group );
 
-        if ( isset( $this->cache[ $derived_key ] ) && ! $force ) {
+        // If the key is set to be deleted, this is a miss.
+        if ( ! empty( $this->actions[ $derived_key . 'del' ] ) ) {
+            $found = false;
+            $this->cache_misses++;
+
+            return false;
+        }
+        elseif ( isset( $this->cache[ $derived_key ] ) && ! $force ) {
             $found = true;
             $this->cache_hits++;
 
             return is_object( $this->cache[ $derived_key ] ) ? clone $this->cache[ $derived_key ] : $this->cache[ $derived_key ];
-        } elseif ( in_array( $group, $this->ignored_groups, true ) || ! $this->redis_status() ) {
+        }
+        elseif ( in_array( $group, $this->ignored_groups, true ) || ! $this->redis_status() ) {
             $found = false;
             $this->cache_misses++;
 
@@ -728,8 +812,12 @@ class WP_Object_Cache {
         }
 
         // Add to the internal cache the found values from Redis
-        foreach ( $cache as $key => $value ) {
-            if ( $value ) {
+        foreach ( $cache as $key => &$value ) {
+            if ( ! empty( $this->actions[ $key . 'del' ] ) ) {
+                $this->cache_misses++;
+                $value = null;
+            }
+            elseif ( $value ) {
                 $this->cache_hits++;
                 $this->add_to_internal_cache( $key, $value );
             } else {
@@ -759,9 +847,9 @@ class WP_Object_Cache {
         if ( ! in_array( $group, $this->ignored_groups, true ) && $this->redis_status() ) {
             $expiration = $this->validate_expiration($expiration);
             if ( $expiration ) {
-                $result = $this->parse_redis_response( $this->redis->setex( $derived_key, $expiration, $this->maybe_serialize( $value ) ) );
+                $this->add_action( $derived_key, 'setex', $this->maybe_serialize( $value ), $expiration );
             } else {
-                $result = $this->parse_redis_response( $this->redis->set( $derived_key, $this->maybe_serialize( $value ) ) );
+                $this->add_action( $derived_key, 'set', $this->maybe_serialize( $value ) );
             }
         }
 
@@ -862,9 +950,9 @@ class WP_Object_Cache {
         </p>
 
         <ul>
-            <?php foreach ( $this->cache as $group => $cache ) : ?>
-                <li><?php printf( '%s - %sk', strip_tags( $group ), number_format( strlen( serialize( $cache ) ) / 1024, 2 ) ); ?></li>
-            <?php endforeach; ?>
+        <?php foreach ( $this->cache as $group => $cache ) : ?>
+            <li><?php printf( '%s - %sk', strip_tags( $group ), number_format( strlen( serialize( $cache ) ) / 1024, 2 ) ); ?></li>
+        <?php endforeach; ?>
         </ul><?php
 
     }
@@ -1095,7 +1183,7 @@ class WP_Object_Cache {
                 } elseif ( false === strpos( $data, '"' ) ) {
                     return false;
                 }
-                // or else fall through
+            // or else fall through
             case 'a' :
             case 'O' :
                 return (bool) preg_match( "/^{$token}:[0-9]+:/s", $data );
@@ -1109,3 +1197,6 @@ class WP_Object_Cache {
     }
 
 }
+
+// Endif for disabling the dropin.
+endif;
