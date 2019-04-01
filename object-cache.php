@@ -675,9 +675,8 @@ class WP_Object_Cache {
 
         // save if group not excluded and redis is up
         if ( ! in_array( $group, $this->ignored_groups, true ) && $this->redis_status() ) {
-            $exists = $this->has_set_action( $derived_key ) || $this->redis->exists( $derived_key );
-
-            if ( $add === $exists ) {
+            if ( $add && ( $this->has_set_action( $derived_key ) || $this->redis->exists( $derived_key ) ) ) {
+                // Do not set the value.
                 return false;
             }
 
@@ -769,7 +768,7 @@ class WP_Object_Cache {
         $derived_key = $this->build_key( $key, $group );
 
         // If the key is set to be deleted, this is a miss.
-        if ( ! empty( $this->actions[ $derived_key . 'del' ] ) ) {
+        if ( $this->has_del_action( $derived_key ) ) {
             $found = false;
             $this->cache_misses++;
 

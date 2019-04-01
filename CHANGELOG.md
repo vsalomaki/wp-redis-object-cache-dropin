@@ -12,8 +12,8 @@
 
 ### Fixed
 
+- Fixed the `exist` checking for the `add_or_replace()` method. It is done only if the command is actually `add`.
 - Fixed some incorrect method comments.
-
 
 ## 1.5.0
 
