@@ -514,34 +514,86 @@ class WP_Object_Cache {
 
     /**
      * Add an action to be run on the PHP's shutdown hook.
-     *
      * If the same key is used multiple times, the previous action is removed.
      * This results in only one action to be excecuted for a specific key.
      *
-     * @param string       $key         The key under which to store the value.
+     * @param string       $derived_key The derived cache key under which to store the value.
      * @param string       $command     The Redis command to be excecuted.
      * @param mixed        $value       The value to store.
      * @param integer|null $expiration  The expiration time, defaults to 0.
+     *
      * @return void
      */
-    protected function add_action( string $key, string $command, $value = null, ?int $expiration = null ) {
-        $action_key = $key . $command;
+    protected function add_action( string $derived_key, string $command, $value = null, ?int $expiration = null ) {
+        $command    = strtoupper( $command );
+        $action_key = $this->get_action_key( $derived_key, $command );
 
         $this->actions[ $action_key ] = [
-            'key'        => $key,
+            'key'        => $derived_key,
             'command'    => $command,
             'value'      => $value,
             'expiration' => $expiration,
         ];
 
-        $actions = [ 'del', 'set', 'setex' ];
+        $actions = [ 'DEL', 'SET', 'SETEX' ];
 
         $remove_actions = array_diff( [ $command ], $actions );
 
-        // Remve other actions.
-        foreach( $remove_actions as $action ) {
-            unset( $this->actions[ $key . $action ] );
+        // Remove any previously stored actions.
+        foreach( $remove_actions as $remove_action ) {
+            $remove_key = $this->get_action_key( $derived_key, $remove_action );
+            unset( $this->actions[ $remove_key ] );
         }
+    }
+
+    /**
+     * Check if a deletion action is set for a given key.
+     *
+     * @param string $derived_key The derived cache key.
+     *
+     * @return bool
+     */
+    protected function has_delete_action( string $derived_key ) {
+        return isset( $this->actions[ $this->get_action_key( $derived_key, 'DEL' ) ] );
+    }
+
+    /**
+     * A method for formatting the action key to store a Redis action.
+     *
+     * @param string $derived_key The derived cache key.
+     * @param string $command     The Redis command to be excecuted.
+     *
+     * @return string
+     */
+    protected function get_action_key( string $derived_key = '', string $command = '' ) {
+        return $derived_key . '_' . strtoupper( $command );
+    }
+
+    /**
+     * Check if a delete actions is set for a given key.
+     *
+     * @param string $derived_key The derived cache key.
+     *
+     * @return bool
+     */
+    protected function has_del_action( string $derived_key ) {
+        $has = isset( $this->actions[ $this->get_action_key( $derived_key, 'DEL' ) ] );
+
+        return $has;
+    }
+
+    /**
+     * Check if a setting action is set for a given key.
+     *
+     * @param string $derived_key The derived cache key.
+     *
+     * @return bool
+     */
+    protected function has_set_action( string $derived_key ) {
+        $has = isset( $this->actions[ $this->get_action_key( $derived_key, 'SET' ) ] ) ||
+               isset( $this->actions[ $this->get_action_key( $derived_key, 'SETEX' ) ] );
+
+        return $has;
     }
 
     /**
@@ -555,18 +607,18 @@ class WP_Object_Cache {
         foreach( $this->actions as $action ) {
             try {
                 switch ( $action['command'] ) {
-                    case 'del':
+                    case 'DEL':
                         $this->redis->del( $action['key'] );
                         break;
-                    case 'set':
+                    case 'SET':
                         $this->redis->set( $action['key'], $action['value'] );
                         break;
-                    case 'setex':
+                    case 'SETEX':
                         $this->redis->set( $action['key'], $action['value'] );
                         break;
                 }
             }
-            catch ( Exception $error ) {
+            catch ( \Exception $error ) {
                 error_log( 'Redis Object Cache Drop-In: ' . $error->getMessage() );
             }
         }
@@ -623,7 +675,7 @@ class WP_Object_Cache {
 
         // save if group not excluded and redis is up
         if ( ! in_array( $group, $this->ignored_groups, true ) && $this->redis_status() ) {
-            $exists = $this->redis->exists( $derived_key );
+            $exists = $this->has_set_action( $derived_key ) || $this->redis->exists( $derived_key );
 
             if ( $add === $exists ) {
                 return false;
@@ -692,6 +744,7 @@ class WP_Object_Cache {
 
         $this->cache = array();
 
+        $result = false;
         if ( $this->redis_status() ) {
             $result = $this->parse_redis_response( $this->redis->flushdb() );
         }
@@ -706,7 +759,7 @@ class WP_Object_Cache {
      *
      * @param   string        $key        The key under which to store the value.
      * @param   string        $group      The group value appended to the $key.
-     * @param   string        $force      Optional. Whether to force a refetch rather than relying on the local
+     * @param   bool          $force      Optional. Whether to force a refetch rather than relying on the local
      *                                    cache. Default false.
      * @param   bool          &$found     Optional. Whether the key was found in the cache. Disambiguates a return of
      *                                    false, a storable value. Passed by reference. Default null.
@@ -1094,6 +1147,8 @@ class WP_Object_Cache {
      * Wrapper to validate the cache keys expiration value
      *
      * @param mixed $expiration Incomming expiration value (whatever it is)
+     *
+     * @return int
      */
     protected function validate_expiration( $expiration ) {
         $expiration = ( is_array( $expiration ) || is_object( $expiration ) ? 0 : abs( intval( $expiration ) ) );
