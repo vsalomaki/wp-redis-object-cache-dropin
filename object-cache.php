@@ -467,7 +467,7 @@ class WP_Object_Cache {
             $this->redis_connected = true;
 
             // Register the shutdown hook to perform Redis actions.
-            register_shutdown_function( [ $this, 'excecute_actions' ] );
+            register_shutdown_function( [ $this, 'execute_actions' ] );
 
         } catch ( Exception $exception ) {
 
@@ -515,10 +515,10 @@ class WP_Object_Cache {
     /**
      * Add an action to be run on the PHP's shutdown hook.
      * If the same key is used multiple times, the previous action is removed.
-     * This results in only one action to be excecuted for a specific key.
+     * This results in only one action to be executed for a specific key.
      *
      * @param string       $derived_key The derived cache key under which to store the value.
-     * @param string       $command     The Redis command to be excecuted.
+     * @param string       $command     The Redis command to be executed.
      * @param mixed        $value       The value to store.
      * @param integer|null $expiration  The expiration time, defaults to 0.
      *
@@ -561,7 +561,7 @@ class WP_Object_Cache {
      * A method for formatting the action key to store a Redis action.
      *
      * @param string $derived_key The derived cache key.
-     * @param string $command     The Redis command to be excecuted.
+     * @param string $command     The Redis command to be executed.
      *
      * @return string
      */
@@ -597,9 +597,9 @@ class WP_Object_Cache {
     }
 
     /**
-     * Excecute all stored Redis commands.
+     * Execute all stored Redis commands.
      */
-    public function excecute_actions() {
+    public function execute_actions() {
         if ( empty( $this->actions ) ) {
             return;
         }

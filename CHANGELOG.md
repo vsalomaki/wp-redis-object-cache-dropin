@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- All operations to Redis are now performed in the [PHP shutdown function](https://www.php.net/manual/en/function.register-shutdown-function.php). This change speeds up requests to PHP performing multiple Redis operations for the same key by executing only the final command.
+
+### Added
+
+- Added the ability to disable the dropin with a boolean type constant `WP_REDIS_DISABLED`.
+
+### Fixed
+
+- Fixed some incorrect method comments.
+
+
 ## 1.5.0
 
 * All ignored cache group comparisons use strict string comparison.
