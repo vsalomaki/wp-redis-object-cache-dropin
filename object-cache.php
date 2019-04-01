@@ -537,7 +537,7 @@ class WP_Object_Cache {
 
         $actions = [ 'DEL', 'SET', 'SETEX' ];
 
-        $remove_actions = array_diff( [ $command ], $actions );
+        $remove_actions = array_diff( $actions, [ $command ] );
 
         // Remove any previously stored actions.
         foreach( $remove_actions as $remove_action ) {
