@@ -339,7 +339,7 @@ class WP_Object_Cache {
     public $cache_misses = 0;
 
     /**
-     * This array holds all actions to be perfomed in the PHP's shutdown hook.
+     * This array holds all actions to be performed in the PHP's shutdown function.
      *
      * @var array
      */
@@ -466,7 +466,7 @@ class WP_Object_Cache {
 
             $this->redis_connected = true;
 
-            // Register the shutdown hook to perform Redis actions.
+            // Register the shutdown hook to execute Redis commands.
             register_shutdown_function( [ $this, 'execute_actions' ] );
 
         } catch ( Exception $exception ) {
@@ -513,7 +513,7 @@ class WP_Object_Cache {
     }
 
     /**
-     * Add an action to be run on the PHP's shutdown hook.
+     * Add an action to be run in the PHP's shutdown function.
      * If the same key is used multiple times, the previous action is removed.
      * This results in only one action to be executed for a specific key.
      *
@@ -544,17 +544,7 @@ class WP_Object_Cache {
             $remove_key = $this->get_action_key( $derived_key, $remove_action );
             unset( $this->actions[ $remove_key ] );
         }
-    }
-
-    /**
-     * Check if a deletion action is set for a given key.
-     *
-     * @param string $derived_key The derived cache key.
-     *
-     * @return bool
-     */
-    protected function has_delete_action( string $derived_key ) {
-        return isset( $this->actions[ $this->get_action_key( $derived_key, 'DEL' ) ] );
+        unset( $remove_action );
     }
 
     /**
@@ -570,7 +560,7 @@ class WP_Object_Cache {
     }
 
     /**
-     * Check if a delete actions is set for a given key.
+     * Check if a deletion action is set for a given key.
      *
      * @param string $derived_key The derived cache key.
      *
@@ -614,7 +604,7 @@ class WP_Object_Cache {
                         $this->redis->set( $action['key'], $action['value'] );
                         break;
                     case 'SETEX':
-                        $this->redis->set( $action['key'], $action['value'] );
+                        $this->redis->setex( $action['key'], $action['expiration'], $action['value'] );
                         break;
                 }
             }
@@ -865,7 +855,8 @@ class WP_Object_Cache {
 
         // Add to the internal cache the found values from Redis
         foreach ( $cache as $key => &$value ) {
-            if ( ! empty( $this->actions[ $key . 'del' ] ) ) {
+            if ( ! empty( $this->has_del_action( $key ) ) ) {
+                // The key is set to be deleted.
                 $this->cache_misses++;
                 $value = null;
             }
