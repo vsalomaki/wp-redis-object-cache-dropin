@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.0
+
+* Added a filter for the `set()` method to be able to filter the expiration time by key, group and value.
+
 ## 1.5.0
 
 * All ignored cache group comparisons use strict string comparison.

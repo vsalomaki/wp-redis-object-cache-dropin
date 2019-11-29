@@ -755,6 +755,9 @@ class WP_Object_Cache {
         $derived_key = $this->build_key( $key, $group );
         $result = true;
 
+        // Ability to filter the expiration time by key or group
+        $expiration = apply_filters( 'redis_object_cache_expiration', $expiration, $key, $derived_key, $group, $value );
+
         // save if group not excluded from redis and redis is up
         if ( ! in_array( $group, $this->ignored_groups, true ) && $this->redis_status() ) {
             $expiration = $this->validate_expiration($expiration);
