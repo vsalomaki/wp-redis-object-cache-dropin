@@ -1,5 +1,5 @@
 {
-    "name": "devgeniem/wp-redis-object-cache-dropin",
+    "name": "vsalomaki/wp-redis-object-cache-dropin",
     "description": "A persistent object cache backend for WordPress powered by Redis. Supports Predis, PhpRedis, HHVM, replication and clustering.",
     "homepage": "https://github.com/devgeniem/wp-redis-object-cache-dropin",
     "type": "wordpress-dropin",
